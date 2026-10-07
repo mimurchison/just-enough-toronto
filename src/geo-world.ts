@@ -5,10 +5,11 @@ import {groundHeight} from './terrain';
 import * as T from 'three';
 import {buildDistantCity} from './distant-city';
 import {buildNeighbourhoodBackdrop} from './neighbourhood-backdrop';
-import {GEO,RENDER_BUILDINGS,inside,queenZ,segmentDistance} from './geography';
+import {GEO,RENDER_BUILDINGS,START,inside,queenZ,segmentDistance} from './geography';
 import type {GeoBuilding} from './geography';
-import {box,orb,rod,sign,material,mergeStatic,makeTram} from './world';
+import {box,orb,rod,sign,material,mergeStatic,prepareMerge,makeTram} from './world';
 import type {World} from './world';
+import {GRAPHICS,type LevelOfDetail} from './render-quality';
 import {architecturalMaterials,buildLandmarkArchitecture} from './architecture';
 import {SURFACES} from './surfaces';
 import {buildDonBridge,DON_BRIDGE} from './don-bridge';
@@ -43,10 +44,12 @@ function strip(parent:T.Group,path:Point[],width:number,y:number,mat:T.Material,
 function clipped(p:Point[]){const result:Point[][]=[];for(let i=1;i<p.length;i++){let [x,z]=p[i-1];const dx=p[i][0]-x,dz=p[i][1]-z;let lo=0,hi=1;for(const [q,r] of [[-dx,x+960],[dx,980-x],[-dz,z+410],[dz,190-z]]){if(!q){if(r<0){hi=-1;break;}}else{const t=r/q;if(q<0)lo=Math.max(lo,t);else hi=Math.min(hi,t);}}if(lo<=hi)result.push([[x+dx*lo,z+dz*lo],[x+dx*hi,z+dz*hi]]);}return result;}
 function facadeFrame(parent:T.Group,a:Point,b:Point,p:Point[]){const g=new T.Group(),dx=b[0]-a[0],dz=b[1]-a[1],len=Math.hypot(dx,dz);let nx=-dz/len,nz=dx/len;if(inside([(a[0]+b[0])/2+nx*.1,(a[1]+b[1])/2+nz*.1],p)){nx=-nx;nz=-nz;}g.position.set((a[0]+b[0])/2,0,(a[1]+b[1])/2);g.rotation.y=Math.atan2(nx,nz);rigidBuilding(g,g.position.x,g.position.z);parent.add(g);return {g,len};}
 
+/** Map tiles within this many metres of the player are always finished before they are seen. */
+export const STREAM_RADIUS=260;
 export function makeGeoWorld():World{
  seed=711;const masonry=architecturalMaterials();const group=new T.Group(),snow=new T.Group(),autumn=new T.Group(),works=new T.Group(),snowbank=new T.Group();group.add(autumn,snow,works,snowbank);
  const obstacles:Obstacle[]=[],gate:Obstacle[]=[],worksBounds:Obstacle[]=[],snowBounds:Obstacle[]=[],people:World['people']=[],markers=new Map<string,T.Group>();
- const tiles=new Map<string,T.Group>();const tile=(x:number,z:number)=>{const key=`${Math.floor(x/125)}:${Math.floor(z/125)}`;if(!tiles.has(key)){const g=new T.Group();g.name=`geographic tile ${key}`;tiles.set(key,g);group.add(g);}return tiles.get(key)!;};
+ const tiles=new Map<string,T.Group>();const tile=(x:number,z:number)=>{const key=`${Math.floor(x/125)}:${Math.floor(z/125)}`;if(!tiles.has(key)){const g=new T.Group();g.name=`geographic tile ${key}`;g.userData.center=[Math.floor(x/125)*125+62.5,Math.floor(z/125)*125+62.5];tiles.set(key,g);group.add(g);}return tiles.get(key)!;};
  const detailTiles=new Map<string,T.Group>();const detail=(x:number,z:number)=>{const key=`${Math.floor(x/100)}:${Math.floor(z/100)}`;if(!detailTiles.has(key)){const g=new T.Group();g.userData.center=[Math.floor(x/100)*100+50,Math.floor(z/100)*100+50];detailTiles.set(key,g);group.add(g);}return detailTiles.get(key)!;};
  const farTiles=new Map<string,T.Group>();const farDetail=(x:number,z:number)=>{const key=`${Math.floor(x/100)}:${Math.floor(z/100)}`;if(!farTiles.has(key)){const g=new T.Group();g.userData.center=[Math.floor(x/100)*100+50,Math.floor(z/100)*100+50];farTiles.set(key,g);group.add(g);}return farTiles.get(key)!;};
  // Cheap facade LOD preserves distant windows; detail culling must not create blank monoliths.
@@ -231,8 +234,33 @@ export function makeGeoWorld():World{
  const leafSites:Point[]=STREET.objects['city-trees'].map(t=>t.p).filter(p=>Math.abs(p[1]-queenZ(p[0]))<12&&p[0]>-580&&p[0]<510);
  for(let x=-908;x<520;x+=8.5){leafSites.push([x,queenZ(x)-5.35],[x+2.3,queenZ(x)+5.55]);}
  addFallenLeaves(autumn,leafSites);
- drapeStatic(group,new Set([sky,tram,ontario.train,...people.map(p=>p.group)]));
- for(const g of [...tiles.values(),...detailTiles.values(),...farTiles.values()])mergeStatic(g);for(const g of farTiles.values())g.traverse(o=>{if(o instanceof T.Mesh)o.castShadow=false;});mergeStatic(works);mergeStatic(snowbank);
+ // Draping and batching are the slow half of the build and use no randomness, so they run
+ // per map tile, nearest first: the street around the player is finished before the first
+ // frame and the rest a tile at a time during play. A tile stays hidden until it is done,
+ // and each finished tile is exactly what the one-shot build produced.
+ const pending=[...tiles.values(),...detailTiles.values(),...farTiles.values()],queue=new Set(pending),farSet=new Set<T.Object3D>(farTiles.values());
+ for(const g of [...pending,works,snowbank])prepareMerge(g);
+ drapeStatic(group,new Set([sky,tram,ontario.train,...people.map(p=>p.group),...pending]));
+ mergeStatic(works);mergeStatic(snowbank);
+ group.updateMatrixWorld(true);const tileBounds=new Map([...tiles.values()].map(g=>[g,new T.Box3().setFromObject(g)] as const)),tileProbe=new T.Vector3();
+ for(const g of pending){g.userData.ready=false;g.visible=false;}
+ const finish=(g:T.Group)=>{
+  drapeStatic(g,new Set());mergeStatic(g);if(farSet.has(g))g.traverse(o=>{if(o instanceof T.Mesh)o.castShadow=false;});
+  if(tileBounds.has(g))tileBounds.set(g,new T.Box3().setFromObject(g));g.userData.ready=true;queue.delete(g);
+ };
+ const streamTiles=(x:number,z:number,{radius=0,budgetMs=0}:{radius?:number;budgetMs?:number}={})=>{
+  const done:T.Object3D[]=[];if(!queue.size)return done;
+  const start=performance.now(),away=(g:T.Object3D)=>{const c=g.userData.center as Point;return Math.hypot(c[0]-x,c[1]-z);};
+  for(const g of [...queue].sort((a,b)=>away(a)-away(b))){
+   if(away(g)>radius&&performance.now()-start>=budgetMs)break;
+   finish(g as T.Group);done.push(g);
+  }
+  return done;
+ };
+ streamTiles(START[0],START[1],{radius:STREAM_RADIUS});
  for(const person of people)person.group.position.y=groundHeight(person.x,person.z);
- return {updateTransit:(time:number,reduced:boolean)=>{ontario.update(time,reduced);ontario.train.position.y=6.40+groundHeight(ontario.train.position.x,ontario.train.position.z);},updateVisibility:(x:number,z:number)=>{for(const g of autumn.children){const c=g.userData.center;if(c)g.visible=Math.hypot(x-c[0],z-c[1])<180;}for(const g of detailTiles.values()){const c=g.userData.center;g.visible=Math.hypot(x-c[0],z-c[1])<280;}for(const g of farTiles.values()){const c=g.userData.center,d=Math.hypot(x-c[0],z-c[1]);g.visible=(d>=280||c[0]>=750)&&d<1400;}},group,snow,autumn,works,snowbank,obstacles,gate,worksBounds,snowBounds,tram,people,markers,recipient,sky,sunUniform,leaves,leafPositions,cameraOccluders:[]};
+ return {updateTransit:(time:number,reduced:boolean)=>{ontario.update(time,reduced);ontario.train.position.y=6.40+groundHeight(ontario.train.position.x,ontario.train.position.z);},streamTiles,pendingTiles:()=>queue.size,updateVisibility:(x:number,z:number,lod:LevelOfDetail=GRAPHICS.high.lod)=>{for(const g of autumn.children){const c=g.userData.center;if(c)g.visible=Math.hypot(x-c[0],z-c[1])<lod.foliage;}for(const g of detailTiles.values()){const c=g.userData.center;g.visible=g.userData.ready&&Math.hypot(x-c[0],z-c[1])<lod.detail;}for(const g of farTiles.values()){const c=g.userData.center,d=Math.hypot(x-c[0],z-c[1]);g.visible=g.userData.ready&&(d>=lod.detail||c[0]>=750)&&d<lod.far;}
+  // Whole map tiles past the fog line render as flat fog colour; skip them. Measure to the
+  // tile's bounds, not its anchor, so long structures reaching back towards Pip stay drawn.
+  for(const [g,box] of tileBounds){tileProbe.set(x,box.min.y,z);g.visible=g.userData.ready&&box.distanceToPoint(tileProbe)<lod.fog;}},group,snow,autumn,works,snowbank,obstacles,gate,worksBounds,snowBounds,tram,people,markers,recipient,sky,sunUniform,leaves,leafPositions,cameraOccluders:[]};
 }

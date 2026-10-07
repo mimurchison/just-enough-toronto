@@ -14,5 +14,6 @@ export default defineConfig({
   },
  }],
  server:{port:5178,strictPort:true},
- build:{target:'esnext',rollupOptions:{output:{manualChunks(id){if(id.includes('/node_modules/three/'))return 'three';}}}},
+ // The car loader stays with the lazily loaded Rush chunk, out of the shared three.js chunk.
+ build:{target:'esnext',rollupOptions:{output:{manualChunks(id){if(id.includes('/node_modules/three/')&&!/GLTFLoader|meshopt_decoder/.test(id))return 'three';}}}},
 });

@@ -1,0 +1,9 @@
+Race car models (optional Rush mode). Both CC-BY-4.0: https://creativecommons.org/licenses/by/4.0/
+
+hcr-race-car.glb
+  "HCR Race Car" by oakar258 — https://sketchfab.com/3d-models/hcr-race-car-1a35afde483f49f69a4a3c1da2df63e3
+  Changes: textures re-encoded to WebP (max 1024 px), meshopt-compressed.
+
+race-car-01.glb
+  "Race Car 01" by toddeppe — https://sketchfab.com/3d-models/race-car-01-7243b4952d4341ff96d2c5a9ff431238
+  Changes: simplified from ~610k to ~80k triangles, textures re-encoded to WebP (max 1024 px), meshopt-compressed.

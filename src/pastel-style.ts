@@ -36,8 +36,10 @@ export function makePastelSky(){
  //At8.8km the dome remains behind the real-position CN Tower and city roofs.
  const mesh=new T.Mesh(new T.SphereGeometry(8800,32,20),mat);mesh.position.set(-180,0,-100);mesh.renderOrder=-100;mesh.frustumCulled=false;return {mesh,top:mat.uniforms.top};
 }
+// Each material is styled once, even when streamed map tiles bring it in later.
+const seen=new WeakSet<T.Material>();
 export function applyPastelMaterials(root:T.Object3D){
- const seen=new Set<T.Material>();root.traverse(o=>{if(!(o instanceof T.Mesh))return;for(const mat of Array.isArray(o.material)?o.material:[o.material]){
+root.traverse(o=>{if(!(o instanceof T.Mesh))return;for(const mat of Array.isArray(o.material)?o.material:[o.material]){
   if(seen.has(mat)||!(mat instanceof T.MeshStandardMaterial))continue;seen.add(mat);
   if(mat.userData.streetSurface)installStreetSurface(mat,mat.userData.streetSurface);
   if(mat.userData.roomColumns)installWindowDepth(mat,mat.userData.roomColumns);

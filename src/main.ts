@@ -1,8 +1,9 @@
-import {QUALITY_NAMES,type RenderQuality} from './render-quality';
+import {QUALITY_LEVELS,QUALITY_NAMES,isRenderQuality} from './render-quality';
 import {initPhysics} from './physics';
 import {VISITS} from './geography';
 import './style.css';
 import { Neighbourhood } from './scene';
+import { installRush } from './rush/install';
 import type { SceneMode } from './scene';
 import { StreetSound } from './sound';
 import { BUDGET, MISSIONS, factsForDay, starterBrief, toggleFact, runDelivery } from './game';
@@ -29,8 +30,14 @@ const taskCopy=['Deliver the pastries','Deliver the 90 cm cart','Check today’s
 const riverMark='<svg class="river-mark" viewBox="0 0 240 32" aria-hidden="true"><path d="M1 24C48 24 76 24 97 12S143 0 162 12S199 24 239 24"/><path d="M1 30C48 30 76 30 97 18S143 6 162 18S199 30 239 30"/></svg>';
 const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 app.querySelector('#world')!.innerHTML='<div class=world-loading role=status>Opening Queen East…</div>';
-try{await initPhysics();app.querySelector('#world')!.innerHTML='';town=new Neighbourhood(app.querySelector('#world')!,id=>{near=id;},id=>openBrief(id),speed=>sound.update(speed),()=>sound.chime('bell'));}
+performance.mark('enough:code');
+try{await initPhysics();performance.mark('enough:physics');app.querySelector('#world')!.innerHTML='';town=new Neighbourhood(app.querySelector('#world')!,id=>{near=id;},id=>openBrief(id),speed=>sound.update(speed),()=>sound.chime('bell'));}
 catch(error){console.error('3D renderer unavailable',error);app.querySelector('#world')!.innerHTML='<div class="render-fallback"><h2>The 3D view could not start.</h2><p>You can still play the brief puzzle.</p><button data-action="reload">Try the view again</button></div>';}
+// Rush (race car, mini-map) stays dormant until switched on in its hidden Garage.
+const rush=town?installRush(town,app,kind=>sound.chime(kind)):undefined;
+// One picker on the opening screen and in the pause menu, as in Huck. Lower tiers trade
+// shadows, post-processing and draw distance (level of detail) for frame rate.
+const graphicsPicker=()=>{const current=town?.getQuality()||'high',gpu=town?.gpu();return `<div class="settings-row"><label for="graphics-quality">Graphics${gpu?`<small class="gpu-name" title="${escape(gpu.name)}">${escape(gpu.name)}</small>`:''}</label><select id="graphics-quality" data-setting="quality" aria-label="Graphics quality">${QUALITY_LEVELS.map(q=>`<option value="${q}"${q===current?' selected':''}>${QUALITY_NAMES[q]}</option>`).join('')}</select></div>`;};
 function save(){try{localStorage.setItem(STORAGE,JSON.stringify({chapter,unlocked,brief,checks:[...checks],attempts}));}catch{}}
 function available():Fact[]{return factsForDay(0).map(f=>chapter===2&&checks.has(f.id)?factsForDay(2).find(v=>v.id===f.id)!:f);}
 function stale(id:FactId){return chapter===2&&['works','park'].includes(id)&&!checks.has(id);}
@@ -72,7 +79,10 @@ function render(){
   renderBrief();town?.setState(chapter,mode,briefOpen||ui.dialog.open||mode==='title'||mode==='result'||mode==='complete');
   const audioButton=app.querySelector<HTMLButtonElement>('[data-action="sound"]')!;audioButton.innerHTML=svg(sound.isMuted?'mute':'sound');audioButton.setAttribute('aria-label',sound.isMuted?'Enable sound':'Mute sound');
 }
-function start(resume=false){previousPause=false;token++;town?.cancel();if(resume&&saved){chapter=saved.chapter;unlocked=saved.unlocked;brief=saved.brief;checks=new Set(saved.checks);attempts=saved.attempts;}else{chapter=0;unlocked=0;brief=starterBrief();checks.clear();attempts=[];}mode='explore';briefOpen=false;selected=undefined;result=undefined;render();if(resume)town?.resetRobot();else town?.visit('king-river');save();focusWorld();}
+// Once per GPU: on an integrated or software renderer, say why it may be slow and what helps.
+function gpuTip(){const gpu=town?.gpu();if(!gpu||gpu.kind==='dedicated')return;try{if(localStorage.getItem('enough-gpu-tip')===gpu.name)return;localStorage.setItem('enough-gpu-tip',gpu.name);}catch{}
+ toast(gpu.kind==='software'?'Your browser is drawing without the graphics card. Turn on hardware acceleration, or choose Low graphics in the menu.':`Running on ${gpu.name}. If this computer has a faster graphics card, set your browser to High performance in Windows graphics settings, or choose Low graphics.`);}
+function start(resume=false){previousPause=false;token++;town?.cancel();if(resume&&saved){chapter=saved.chapter;unlocked=saved.unlocked;brief=saved.brief;checks=new Set(saved.checks);attempts=saved.attempts;}else{chapter=0;unlocked=0;brief=starterBrief();checks.clear();attempts=[];}mode='explore';briefOpen=false;selected=undefined;result=undefined;render();if(resume)town?.resetRobot();else town?.visit('king-river');save();focusWorld();gpuTip();}
 async function send(){
   if(mode!=='explore')return;const run=++token;result=runDelivery(brief,MISSIONS[chapter]);const journey=result;mode='delivery';briefOpen=false;selected=undefined;render();sound.chime('send');
   const progress=(p:number)=>{const bar=ui.travel.querySelector<HTMLElement>('.travel-track i');if(bar)bar.style.width=`${p*100}%`;const time=ui.travel.querySelector('.travel-time');if(time)time.textContent=`${(p*journey.minutes).toFixed(1)} min`;};
@@ -87,12 +97,13 @@ function about(){
   <div class="overview-body">
    <div class="overview-copy"><p>Help Pip, a friendly delivery robot, discover how much information is enough.</p><p>Too little leaves gaps. Too much can bury what matters. Compression keeps what is useful for the task.</p><p>The game explores intelligence as knowing what to keep, what to leave out, and when to update it.</p></div>
    <details><summary>How to play</summary><p>Explore. Keep up to four facts in <b>Brief</b>. <b>Send Pip</b>. Revise and retry.</p><div class="control-guide"><span><kbd>WASD / arrows</kbd> Move</span><span><kbd>Drag / scroll</kbd> Look / zoom</span><span><kbd>E</kbd> Inspect</span><span><kbd>Tab / B</kbd> Brief</span></div><p>Three deliveries · about 8–12 minutes.</p></details>
+   ${opening&&town?graphicsPicker():''}
    <a class="overview-credits" href="/sources.html#river-story" target="_blank" rel="noopener">Story &amp; credits ↗</a>
   </div>
   <footer class="overview-footer"><button class="primary" ${opening?'autofocus':''} data-action="${opening?(saved?'resume':'start'):'close-dialog'}">${opening?(saved?'Continue':'Start'):'Back to game'} ${svg('arrow')}</button>${opening&&saved?'<button class="quiet-button" data-action="reset">Start over</button>':''}</footer>
  </div>`);
 }
-function menu(){openDialog(`<h2 id="dialog-title">Paused</h2><button class="primary" data-action="close-dialog">Resume ${svg('play')}</button><div class="settings-row"><span>Reduced motion</span><button data-action="motion" aria-pressed="${reduced}">${reduced?'On':'Off'}</button></div><div class="settings-row"><span>Graphics</span><button data-action="quality" aria-label="Graphics quality">${QUALITY_NAMES[town?.getQuality()||'high']}</button></div><button class="text-link" data-action="about">About Just Enough</button><button class="text-link" data-action="reset">Start again</button>`);}
+function menu(){openDialog(`<h2 id="dialog-title">Paused</h2><button class="primary" data-action="close-dialog">Resume ${svg('play')}</button><div class="settings-row"><span>Reduced motion</span><button data-action="motion" aria-pressed="${reduced}">${reduced?'On':'Off'}</button></div>${town?graphicsPicker():''}<button class="text-link" data-action="about">About Just Enough</button><button class="text-link" data-action="reset">Start again</button>`);}
 app.addEventListener('click',async e=>{
   if(e.detail>1)return;const button=(e.target as HTMLElement).closest<HTMLButtonElement>('[data-action]');if(!button||button.disabled)return;const action=button.dataset.action,id=button.dataset.fact as FactId;
   if(action==='start'){ui.dialog.close();start();return;}if(action==='resume'){ui.dialog.close();start(true);return;}if(action==='reload'){location.reload();return;}
@@ -102,7 +113,6 @@ app.addEventListener('click',async e=>{
   if(action==='visit'){ui.dialog.close();town?.visit(button.dataset.place!);restoreDialogState();return;}
   if(action==='menu'){menu();return;}if(action==='about'||action==='help'){about();return;}if(action==='close-dialog'){ui.dialog.close();return;}
   if(action==='motion'){reduced=!reduced;town?.setReducedMotion(reduced);button.setAttribute('aria-pressed',String(reduced));button.textContent=reduced?'On':'Off';app.classList.toggle('reduced-motion',reduced);return;}
-  if(action==='quality'){const levels:RenderQuality[]=['balanced','high','cinematic'];const q=levels[(levels.indexOf(town?.getQuality()||'high')+1)%3];town?.setQuality(q);button.textContent=QUALITY_NAMES[q];return;}
   if(action==='reset'){ui.dialog.querySelector('.dialog-content')!.innerHTML=`<span class="eyebrow">A FRESH START</span><h2 id="dialog-title">Back to King & River?</h2><p>This resets your brief and chapter progress.</p><button class="primary" data-action="confirm-reset">Start again ${svg('reset')}</button><button class="quiet-button" data-action="close-dialog">Keep exploring</button>`;return;}
   if(action==='confirm-reset'){ui.dialog.close();start();return;}
   if(action==='pause'){if(town){town.paused=!town.paused;button.innerHTML=`${svg(town.paused?'play':'pause')}${town.paused?'Resume':'Pause'}`;ui.travel.querySelector('.travel-label')!.textContent=town.paused?'DELIVERY PAUSED':'OUT FOR DELIVERY';}return;}
@@ -123,6 +133,7 @@ function restoreDialogState(){if(mode==='title'){start(!!saved);return;}if(town)
 // Native dialog close events are queued. A landmark visit restores controls
 // synchronously so the first held direction after selecting it is not lost.
 ui.dialog.addEventListener('close',restoreDialogState);
+app.addEventListener('change',e=>{const select=e.target as HTMLSelectElement;if(select.dataset.setting==='quality'&&isRenderQuality(select.value))town?.setQuality(select.value);});
 window.addEventListener('keydown',e=>{
   if(e.repeat&&['Space','Enter','Tab','KeyE','KeyB'].includes(e.code)){e.preventDefault();return;}
   if(ui.dialog.open)return;
@@ -134,7 +145,7 @@ window.addEventListener('keydown',e=>{
   if(e.code==='Space'&&mode==='delivery'&&(target===document.body||target.tagName==='CANVAS')){e.preventDefault();app.querySelector<HTMLButtonElement>('[data-action="pause"]')?.click();}
 });
 document.addEventListener('visibilitychange',()=>{void sound.visibility(document.hidden);});
-if(new URLSearchParams(location.search).has('debug'))(window as any).__ENOUGH__={getState:()=>({chapter,mode,brief,checks:[...checks],attempts,unlocked,result,briefOpen,near}),scene:()=>town?.diagnostics(),bounds:()=>town?.collisionBounds(),skyline:()=>town?.skylineReference(),sound:()=>sound.diagnostics()};
+if(new URLSearchParams(location.search).has('debug'))(window as any).__ENOUGH__={getState:()=>({chapter,mode,brief,checks:[...checks],attempts,unlocked,result,briefOpen,near}),scene:()=>town?.diagnostics(),bounds:()=>town?.collisionBounds(),skyline:()=>town?.skylineReference(),sound:()=>sound.diagnostics(),rush:()=>rush?.rush()};
 render();
 about();
 if(import.meta.env.DEV&&new URLSearchParams(location.search).has('capture')){(window as any).__ENOUGH_CAPTURE__=(shot:Parameters<Neighbourhood['captureFrame']>[0])=>town?.captureFrame(shot);(window as any).__ENOUGH_CAPTURE_STEP__=(dt:number,lens?:Parameters<Neighbourhood['captureStep']>[1])=>town?.captureStep(dt,lens);}

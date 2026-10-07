@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Obstacle } from './motion';
 import { worldPoint } from './motion';
 import { factsForDay } from './game';
+import type { LevelOfDetail } from './render-quality';
 
 export const PALETTE={cream:0xffe7b8,coral:0xd94b3f,ink:0x223e42,teal:0x2d817d,gold:0xefb74d,pink:0xd78782,brick:0xb85d49,wood:0x915b3f,grass:0x84a376,snow:0xedf5f0};
 const materialCache=new Map<string,THREE.MeshStandardMaterial>();
@@ -34,15 +35,29 @@ export function sign(parent:THREE.Object3D,words:string,sub:string,x:number,y:nu
  const mesh=new THREE.Mesh(geometry,page.material);mesh.userData.terrainRigid=true;mesh.position.set(x,y,z);const reverse=new THREE.Mesh(geometry,page.material);reverse.rotation.y=Math.PI;reverse.position.z=-.008;mesh.add(reverse);parent.add(mesh);return mesh;
 }
 const vertexMaterials=new Map<string,THREE.MeshStandardMaterial|THREE.MeshBasicMaterial>();
+const mergeable=(o:THREE.Object3D):o is THREE.Mesh<THREE.BufferGeometry,THREE.MeshStandardMaterial|THREE.MeshBasicMaterial>=>!(o instanceof THREE.InstancedMesh)&&o instanceof THREE.Mesh&&!Array.isArray(o.material)&&(o.material instanceof THREE.MeshStandardMaterial||o.material instanceof THREE.MeshBasicMaterial);
+/** Batch key for a mesh, fixed the first time it is asked for. */
+const mergeKeys=new WeakMap<THREE.Object3D,string>();
+function mergeKey(o:THREE.Mesh<THREE.BufferGeometry,THREE.MeshStandardMaterial|THREE.MeshBasicMaterial>):string{
+  const known=mergeKeys.get(o);if(known)return known;
+  const source=o.material,pbr=source instanceof THREE.MeshStandardMaterial?source:null;
+  const key=[source.type,pbr?.roughness,pbr?.metalness,source.map?.uuid||'plain',pbr?.normalMap?.uuid||'',pbr?.normalScale.toArray().join(','),pbr?.bumpMap?.uuid||'',pbr?.bumpScale,pbr?.roughnessMap?.uuid||'',source.alphaMap?.uuid||'',source.alphaTest,source.transparent,source.opacity,source.depthWrite,source.depthTest,source.blending,source.toneMapped,source.fog,pbr?.emissive.getHex(),pbr?.emissiveIntensity,source.side,o.castShadow,o.receiveShadow].join('/');;
+  if(!vertexMaterials.has(key)){const mat=source.clone();mat.color.setHex(0xffffff);mat.vertexColors=true;vertexMaterials.set(key,mat);}
+  mergeKeys.set(o,key);return key;
+}
+/**
+ * Fix every batch's material now, from the materials as authored. Use before
+ * merging a group later (streamed tiles): scene-wide material passes may have
+ * touched the source materials by then, and batches must not see that.
+ */
+export function prepareMerge(group:THREE.Object3D){group.traverse(o=>{if(mergeable(o))mergeKey(o);});}
 export function mergeStatic(group:THREE.Group){
   group.updateMatrixWorld(true);const inverse=new THREE.Matrix4().copy(group.matrixWorld).invert();const batches=new Map<THREE.Material,THREE.BufferGeometry[]>();const shadows=new Map<THREE.Material,{cast:boolean;receive:boolean}>();const remove:THREE.Mesh[]=[];
   group.traverse(o=>{
-    if(o instanceof THREE.InstancedMesh||!(o instanceof THREE.Mesh)||Array.isArray(o.material)||!(o.material instanceof THREE.MeshStandardMaterial||o.material instanceof THREE.MeshBasicMaterial))return;
-    const source=o.material,pbr=source instanceof THREE.MeshStandardMaterial?source:null;
-    const key=[source.type,pbr?.roughness,pbr?.metalness,source.map?.uuid||'plain',pbr?.normalMap?.uuid||'',pbr?.normalScale.toArray().join(','),pbr?.bumpMap?.uuid||'',pbr?.bumpScale,pbr?.roughnessMap?.uuid||'',source.alphaMap?.uuid||'',source.alphaTest,source.transparent,source.opacity,source.depthWrite,source.depthTest,source.blending,source.toneMapped,source.fog,pbr?.emissive.getHex(),pbr?.emissiveIntensity,source.side,o.castShadow,o.receiveShadow].join('/');
-    if(!vertexMaterials.has(key)){const mat=source.clone();mat.color.setHex(0xffffff);mat.vertexColors=true;vertexMaterials.set(key,mat);}
-    const mat=vertexMaterials.get(key)!;let geometry=o.geometry.clone().applyMatrix4(o.matrixWorld).applyMatrix4(inverse);
-    if(geometry.index){const plain=geometry.toNonIndexed();geometry.dispose();geometry=plain;}
+    if(!mergeable(o))return;
+    const source=o.material,key=mergeKey(o);
+    // Expanding an indexed geometry already copies it; only clone the ones that are not.
+    const mat=vertexMaterials.get(key)!,geometry=(o.geometry.index?o.geometry.toNonIndexed():o.geometry.clone()).applyMatrix4(o.matrixWorld).applyMatrix4(inverse);
     // Authored ribbons and custom quads may have no UVs. They still share an
     // untextured material with boxes. Canonical attributes prevent a failed
     // batch from silently discarding every source mesh in that group.
@@ -62,7 +77,10 @@ const brickMap=()=>texture((c,w,h)=>{
 },1024,512);
 
 export type CameraOccluder={object:THREE.Object3D;materials:THREE.Material[];box:THREE.Box3;opacity:number;minimum:number;dynamic:boolean};
-export type World={updateTransit?:(time:number,reduced:boolean)=>void;updateVisibility?:(x:number,z:number)=>void;cameraOccluders:CameraOccluder[];group:THREE.Group;snow:THREE.Group;autumn:THREE.Group;works:THREE.Group;snowbank:THREE.Group;obstacles:Obstacle[];gate:Obstacle[];worksBounds:Obstacle[];snowBounds:Obstacle[];tram:THREE.Group;people:{group:THREE.Group;limbs:THREE.Group[];x:number;z:number;phase:number;greetUntil:number;nextGreeting:number}[];markers:Map<string,THREE.Group>;recipient:THREE.Group;sky:THREE.Mesh;sunUniform:{value:THREE.Color};leaves:THREE.Points;leafPositions:Float32Array;};
+export type World={
+  /** Finish map tiles near (x, z): all within radius, then nearest-first while under budgetMs. Returns the tiles finished. */
+  streamTiles?:(x:number,z:number,options?:{radius?:number;budgetMs?:number})=>THREE.Object3D[];pendingTiles?:()=>number;
+  updateTransit?:(time:number,reduced:boolean)=>void;updateVisibility?:(x:number,z:number,lod?:LevelOfDetail)=>void;cameraOccluders:CameraOccluder[];group:THREE.Group;snow:THREE.Group;autumn:THREE.Group;works:THREE.Group;snowbank:THREE.Group;obstacles:Obstacle[];gate:Obstacle[];worksBounds:Obstacle[];snowBounds:Obstacle[];tram:THREE.Group;people:{group:THREE.Group;limbs:THREE.Group[];x:number;z:number;phase:number;greetUntil:number;nextGreeting:number}[];markers:Map<string,THREE.Group>;recipient:THREE.Group;sky:THREE.Mesh;sunUniform:{value:THREE.Color};leaves:THREE.Points;leafPositions:Float32Array;};
 export function makeWorld():World{
   const group=new THREE.Group(),snow=new THREE.Group(),works=new THREE.Group(),snowbank=new THREE.Group(),obstacles:Obstacle[]=[],people:World['people']=[],markers=new Map<string,THREE.Group>();
   const cameraOccluders:CameraOccluder[]=[];

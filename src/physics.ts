@@ -8,6 +8,8 @@ export const initPhysics=()=>RAPIER.init();
 // No invisible AABB volumes across concave building yards or curved streets.
 export class StreetPhysics {
  readonly world=new RAPIER.World({x:0,y:-9.81,z:0});
+ /** The contoured street surface: the one collider a ghost-mode race car still drives on. */
+ readonly ground:RAPIER.Collider;
  private robot:RAPIER.RigidBody;private collider:RAPIER.Collider;private controller:RAPIER.KinematicCharacterController;
  private cart:RAPIER.RigidBody;private cartCollider:RAPIER.Collider;
  private tram:RAPIER.RigidBody;private conditions:RAPIER.Collider[][]=[];private contactCount=0;
@@ -16,7 +18,7 @@ export class StreetPhysics {
   this.world.timestep=1/90;
   const terrainVertices:number[]=[],terrainIndices:number[]=[];
   for(let row=0;row<TERRAIN.rows;row++)for(let col=0;col<TERRAIN.cols;col++){const x=TERRAIN.left+col*TERRAIN.step,z=TERRAIN.top+row*TERRAIN.step;terrainVertices.push(x,groundHeight(x,z)-.03,z);if(row<TERRAIN.rows-1&&col<TERRAIN.cols-1){const a=row*TERRAIN.cols+col;terrainIndices.push(a,a+TERRAIN.cols,a+1,a+1,a+TERRAIN.cols,a+TERRAIN.cols+1);}}
-  this.world.createCollider(RAPIER.ColliderDesc.trimesh(new Float32Array(terrainVertices),new Uint32Array(terrainIndices)).setFriction(.85));
+  this.ground=this.world.createCollider(RAPIER.ColliderDesc.trimesh(new Float32Array(terrainVertices),new Uint32Array(terrainIndices)).setFriction(.85));
   const create=(o:Obstacle)=>{let desc:RAPIER.ColliderDesc;if(o.p){const vertices:number[]=[],indices:number[]=[];for(const ring of [o.p,...o.holes||[]])for(let i=0;i<ring.length;i++){const a=ring[i],b=ring[(i+1)%ring.length],n=vertices.length/3;vertices.push(a[0],groundHeight(...a)-.2,a[1],a[0],groundHeight(...a)+o.h,a[1],b[0],groundHeight(...b)+o.h,b[1],b[0],groundHeight(...b)-.2,b[1]);indices.push(n,n+1,n+2,n,n+2,n+3);}desc=RAPIER.ColliderDesc.trimesh(new Float32Array(vertices),new Uint32Array(indices));}else desc=RAPIER.ColliderDesc.cuboid(o.w/2,o.h/2,o.d/2).setTranslation(o.x,groundHeight(o.x,o.z)+o.h/2,o.z);return this.world.createCollider(desc.setFriction(.8));};
   staticBounds.forEach(create);this.conditions=[works.map(create),snow.map(create)];
   this.robot=this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(0,.31,0));this.collider=this.world.createCollider(RAPIER.ColliderDesc.cylinder(.25,.225).setFriction(.85),this.robot);

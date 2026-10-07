@@ -1,0 +1,46 @@
+/* Rush: hidden Garage, race HUD and mini-map. Matches the game's cream/teal palette. */
+.garage{position:absolute;inset:0;z-index:20;display:grid;place-items:center;background:#183d4f70;backdrop-filter:blur(5px);padding:20px}
+.garage-card{position:relative;width:min(500px,100%);max-height:calc(100dvh - 40px);overflow:auto;background:#fff1dcf7;color:var(--ink);border:1px solid #ffedcb;border-radius:23px;padding:28px 30px;box-shadow:0 20px 100px #133c4455}
+.garage-card header{display:flex;flex-direction:column;gap:6px}
+.garage-eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:#b85847}
+.garage-card h2{margin:0;font-size:32px;line-height:1.05;letter-spacing:-.02em}
+.garage-close{position:absolute;right:16px;top:16px;width:34px;height:34px;border-radius:50%;background:#d5dfd280;color:#476266;font-size:20px;line-height:1}
+.garage-intro{font-size:13px;line-height:1.6;color:#4e666a;margin:12px 0 16px}
+.garage-toggles{display:flex;flex-direction:column;border-top:1px solid #a4b6a557}
+.garage-toggle{display:flex;align-items:center;gap:16px;justify-content:space-between;text-align:left;background:none;padding:13px 0;border-bottom:1px solid #a4b6a557;color:inherit}
+.garage-toggle strong{display:block;font-size:14px}.garage-toggle small{display:block;font-size:11.5px;line-height:1.45;color:#5b7072;margin-top:3px}
+.garage-toggle i{flex:none;width:44px;height:26px;border-radius:13px;background:#c4cdbd;position:relative;transition:background .18s}
+.garage-toggle i::after{content:'';position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #0003;transition:transform .18s}
+.garage-toggle[aria-checked=true] i{background:#c44e43}.garage-toggle[aria-checked=true] i::after{transform:translateX(18px)}
+.garage-cars{display:flex;gap:8px;margin:16px 0 4px}
+.garage-cars button{flex:1;padding:11px 12px;border-radius:11px;background:#e4e7d8;color:#355f57;font-weight:600;font-size:12px;border:1px solid transparent}
+.garage-cars button[aria-checked=true]{background:#26434b;color:#fff0d6}
+.garage-controls{margin-top:14px;font-size:12px;color:#4e666a}.garage-controls summary{cursor:pointer;font-weight:600;color:#2f5c59}
+.garage-controls dl{display:grid;gap:7px;margin:12px 0 0}.garage-controls dl>div{display:flex;gap:12px;align-items:baseline}.garage-controls dt{min-width:64px}.garage-controls dd{margin:0}
+.garage-controls kbd{border-color:#819b8970;background:#e1e5d4;color:#385c5b}
+.garage-credit{font-size:10px;color:#7a8a86;margin:16px 0 0;line-height:1.5}
+
+.rush-hud{position:absolute;inset:0;pointer-events:none;z-index:4}
+.rush-task{position:absolute;left:50%;top:30px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:10px 18px;border-radius:30px;background:#21434dd6;border:1px solid #fff1d84d;backdrop-filter:blur(10px);font-size:13px;color:#fff1d8;white-space:nowrap;text-shadow:0 1px 6px #0003}
+.rush-task b{color:#ffcf8a;font-weight:700}.rush-task kbd{margin-right:4px}
+.rush-clock{font-family:var(--mono);font-size:14px;color:#fff;padding-left:10px;border-left:1px solid #fff1d84d}.rush-clock.low{color:#ff9b7a}
+.rush-score{font-family:var(--mono);font-size:10px;color:#cfe3d6;padding-left:10px;border-left:1px solid #fff1d84d}
+.rush-banner{position:absolute;left:50%;top:84px;transform:translateX(-50%);padding:9px 16px;border-radius:12px;background:#fff0ddeb;color:var(--ink);font-size:13px;font-weight:600;box-shadow:0 8px 30px #16384630;animation:rush-pop .25s ease}
+.rush-gauge{position:absolute;right:36px;bottom:104px;width:112px;height:112px;display:grid;place-items:center;text-align:center;color:#fff1d8;text-shadow:0 2px 8px #163a42}
+.rush-gauge svg{position:absolute;inset:0;transform:rotate(-90deg)}.rush-gauge circle{fill:#21434d99;stroke:#fff1d82e;stroke-width:7}
+.rush-gauge circle.fill{fill:none;stroke:#ffb347;stroke-linecap:round;stroke-dasharray:276.5;transition:stroke-dashoffset .12s}
+.rush-gauge strong{position:relative;font-size:30px;line-height:1;margin-top:18px}.rush-gauge span{position:relative;font-family:var(--mono);font-size:9px;letter-spacing:.14em;margin-top:-26px}
+.rush-gauge em{position:absolute;bottom:-24px;left:50%;transform:translateX(-50%);font-style:normal;font-family:var(--mono);font-size:12px;white-space:nowrap}
+.rush-gauge i{position:absolute;top:-24px;left:50%;transform:translateX(-50%);font-style:normal;font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:#fff;background:#c44e43;padding:3px 8px;border-radius:10px;white-space:nowrap}
+.rush-gauge.supersonic circle.fill{stroke:#fff}
+
+.minimap{position:absolute;z-index:5;right:36px;top:148px;width:176px;height:176px;border-radius:50%;overflow:hidden;border:2px solid #fff1d8b0;box-shadow:0 8px 30px #16384640;background:#2c4b52;pointer-events:none}
+.minimap canvas{width:100%;height:100%;display:block}
+.minimap.large{right:50%;top:50%;width:min(86vw,1100px);height:min(64vw,760px,80dvh);transform:translate(50%,-50%);border-radius:20px;pointer-events:auto}
+.minimap-legend{display:none;position:absolute;left:14px;top:12px;margin:0;padding:10px 12px;list-style:none;background:#21434dd9;border-radius:12px;color:#fff1d8;font-size:11px;gap:5px;flex-direction:column}
+.minimap.large .minimap-legend{display:flex}
+.minimap-legend li{display:flex;align-items:center;gap:8px}.minimap-legend li::before{content:'';width:10px;height:10px;border-radius:50%;border:1.5px solid #183238}
+.minimap-legend [data-kind=landmark]::before{background:#ffe1a8;border-radius:2px 2px 50% 50%}.minimap-legend [data-kind=pip]::before{background:#f6c97e}.minimap-legend [data-kind=car]::before{background:#5fd1e0}.minimap-legend [data-kind=delivery]::before{background:#b9ebbe;border-radius:2px}
+.minimap-legend [data-kind=target]::before{background:#ff8a5c}.minimap-legend [data-kind=meet]::before{background:#5fd1e0;box-shadow:0 0 0 3px #5fd1e055}.minimap-legend [data-kind=boost]::before{background:#ffb347;width:7px;height:7px;border:0}
+@keyframes rush-pop{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+@media (max-width:720px){.minimap{width:120px;height:120px;right:16px;top:130px}.rush-gauge{right:16px;bottom:96px;transform:scale(.85)}.rush-task{top:84px;font-size:12px;max-width:calc(100% - 32px);overflow:hidden}}

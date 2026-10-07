@@ -23,8 +23,12 @@ export class ContactOcclusion {
   // A normal override cannot sample each foliage card's alpha mask. Exclude
   // cutouts and glass from this pass instead of casting rectangular leaf AO.
   // Distant fog-exempt skyline meshes cannot create local contact shadows.
-  scene.traverse(o=>{if(o instanceof T.Mesh&&!Array.isArray(o.material)&&(o.material.transparent||o.material.alphaTest>0||!o.material.fog))this.excluded.push(o);});
+  this.scan(scene);
  }
+ /** Apply the cutout/glass/skyline exclusion to meshes added after construction (streamed map tiles). */
+ scan(root:T.Object3D){root.traverse(o=>{if(o instanceof T.Mesh&&!Array.isArray(o.material)&&(o.material.transparent||o.material.alphaTest>0||!o.material.fog)&&!this.excluded.includes(o))this.excluded.push(o);});}
+ /** Later additions that should not darken their surroundings (glows, beacons). */
+ exclude(o:T.Object3D){o.traverse(m=>{if(m instanceof T.Mesh&&!this.excluded.includes(m))this.excluded.push(m);});}
  resize(width:number,height:number){this.normalCamera.aspect=this.camera.aspect;this.normalCamera.updateProjectionMatrix();this.pass.setSize(Math.max(1,Math.round(width*.70)),Math.max(1,Math.round(height*.70)));}
  render(renderer:T.WebGLRenderer,target?:T.WebGLRenderTarget){
   this.normalCamera.position.copy(this.camera.position);this.normalCamera.quaternion.copy(this.camera.quaternion);
